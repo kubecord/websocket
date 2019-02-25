@@ -1,10 +1,13 @@
 package main
 
+import "encoding/json"
+
 type GatewayPayload struct {
-	Op       uint32      `json:"op"`
-	Data     interface{} `json:"d"`
-	Sequence uint64      `json:"s"`
-	Event    string      `json:"t"`
+	Op       uint32          `json:"op"`
+	Data     json.RawMessage `json:"d"`
+	Sequence uint64          `json:"s"`
+	Event    string          `json:"t"`
+	Struct   interface{}     `json:"-"`
 }
 
 type OutgoingPayload struct {
