@@ -5,7 +5,7 @@ import "encoding/json"
 type GatewayPayload struct {
 	Op       uint32          `json:"op"`
 	Data     json.RawMessage `json:"d"`
-	Sequence uint64          `json:"s"`
+	Sequence int64           `json:"s"`
 	Event    string          `json:"t"`
 	Struct   interface{}     `json:"-"`
 }
@@ -15,16 +15,18 @@ type OutgoingPayload struct {
 	Data interface{} `json:"d"`
 }
 
+type IdentifyProperties struct {
+	OS      string `json:"$os"`
+	Browser string `json:"$browser"`
+	Device  string `json:"$device"`
+}
+
 type Identify struct {
-	Token      string `json:"token"`
-	Properties struct {
-		OS      string `json:"$os"`
-		Browser string `json:"$browser"`
-		Device  string `json:"$device"`
-	} `json:"properties"`
-	Compress       bool     `json:"compress"`
-	LargeThreshold uint32   `json:"large_threshold"`
-	Shard          []uint32 `json:"shard"`
+	Token          string             `json:"token"`
+	Properties     IdentifyProperties `json:"properties"`
+	Compress       bool               `json:"compress"`
+	LargeThreshold uint32             `json:"large_threshold"`
+	Shard          *[2]int            `json:"shard"`
 }
 
 type Resume struct {
@@ -66,6 +68,11 @@ type Ready struct {
 
 type Resumed struct {
 	Trace []string `json:"_trace"`
+}
+
+type HeartBeatOp struct {
+	Op       int   `json:"op"`
+	Sequence int64 `json:"d"`
 }
 
 /* Gateway objects */
