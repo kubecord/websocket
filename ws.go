@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/go-nats"
 	"github.com/nats-io/go-nats-streaming"
 	"io"
+	"net/http"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,97 @@ type Shard struct {
 	wsLock           sync.Mutex
 	listening        chan interface{}
 	LastHeartbeatAck time.Time
+	Gateway          string
+}
+
+func (s *Shard) Open(gateway string) error {
+	var err error
+
+	s.Lock()
+	defer s.Unlock()
+
+	if s.Conn != nil {
+		return ErrWSAlreadyOpen
+	}
+	s.Gateway = gateway
+	gateway = gateway + "?v=6&encoding=json&compress=zlib-stream"
+
+	log.Info("Shard %d connecting to gateway", s.ShardId)
+	header := http.Header{}
+	header.Add("accept-encoding", "zlib")
+
+	s.Conn, _, err = websocket.DefaultDialer.Dial(gateway, header)
+	if err != nil {
+		log.Warn("error connecting to gateway on shard %d", err)
+		s.Conn = nil
+		return err
+	}
+
+	s.Conn.SetCloseHandler(func(code int, text string) error {
+		return nil
+	})
+
+	defer func() {
+		// because of this, all code below must set err to the error
+		// when exiting with an error :)  Maybe someone has a better
+		// way :)
+		if err != nil {
+			_ = s.Conn.Close()
+			s.Conn = nil
+		}
+	}()
+
+	messagetype, message, err := s.wsConn.ReadMessage()
+	if err != nil {
+		return err
+	}
+	e, err := s.Dispatch(messagetype, message)
+	if err != nil {
+		return err
+	}
+
+	if e.Op != OP_HELLO {
+		log.Error("expecting Op 10, got Op %d", e.Op)
+		return err
+	}
+
+	s.LastHeartbeatAck = time.Now().UTC()
+
+	var h Hello
+	if err = json.Unmarshal(e.Data, &h); err != nil {
+		return fmt.Errorf("error unmarshalling hello: %s", err)
+	}
+
+	sequence := atomic.LoadInt64(s.Sequence)
+	if s.SessionID == "" && sequence == 0 {
+		err = s.Identify()
+		if err != nil {
+			return fmt.Errorf("error sending identify package on shard %d: %s", s.ShardId, err)
+		}
+	} else {
+		data := ResumeData{
+			Token:     s.Token,
+			SessionID: s.SessionID,
+			Sequence:  sequence,
+		}
+
+		p := ResumePayload{
+			Op:   OP_RESUME,
+			Data: data,
+		}
+
+		s.wsLock.Lock()
+		err = s.Conn.WriteJSON(p)
+		s.wsLock.Unlock()
+		if err != nil {
+			return fmt.Errorf("error sending resume packet for shard %d: %s", s.ShardId, err)
+		}
+	}
+
+	s.listening = make(chan interface{})
+	// TODO: Set up heartbeat logic
+	go s.onPayload(s.Conn, s.listening)
+	return nil
 }
 
 func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) {
@@ -113,13 +205,12 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 		s.Reconnect()
 		return e, nil
 	case OP_INVALID_SESSION:
-	case OP_HELLO:
 		err = s.Identify()
 		if err != nil {
 			log.Error("error identifying with gateway: %s", err)
 			return e, err
 		}
-
+	case OP_HELLO:
 		return e, nil
 	case OP_HEARTBEAT_ACK:
 		s.Lock()

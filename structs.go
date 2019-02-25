@@ -75,6 +75,17 @@ type HeartBeatOp struct {
 	Sequence int64 `json:"d"`
 }
 
+type ResumeData struct {
+	Token     string `json:"token"`
+	SessionID string `json:"session_id"`
+	Sequence  int64  `json:"seq"`
+}
+
+type ResumePayload struct {
+	Op   int        `json:"op"`
+	Data ResumeData `json:"d"`
+}
+
 /* Gateway objects */
 
 type User struct {
