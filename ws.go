@@ -73,7 +73,7 @@ func (s *Shard) Open(gateway string) error {
 		}
 	}()
 
-	messagetype, message, err := s.wsConn.ReadMessage()
+	messagetype, message, err := s.Conn.ReadMessage()
 	if err != nil {
 		return err
 	}
@@ -210,6 +210,7 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 			log.Error("error identifying with gateway: %s", err)
 			return e, err
 		}
+		return e, nil
 	case OP_HELLO:
 		return e, nil
 	case OP_HEARTBEAT_ACK:
