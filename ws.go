@@ -285,7 +285,7 @@ func (s *Shard) Reconnect() {
 	wait := time.Duration(1)
 
 	for {
-		err = s.Open()
+		err = s.Open(s.Gateway)
 		if err == nil {
 			log.Info("reconnected shard %d to gateway", s.ShardId)
 			return
