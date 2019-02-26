@@ -1,6 +1,9 @@
 package main
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type GatewayPayload struct {
 	Op       uint32          `json:"op"`
@@ -52,8 +55,8 @@ type PresenceUpdatePayload struct {
 }
 
 type Hello struct {
-	Interval uint32   `json:"heartbeat_interval"`
-	Trace    []string `json:"_trace"`
+	Interval time.Duration `json:"heartbeat_interval"`
+	Trace    []string      `json:"_trace"`
 }
 
 type Ready struct {

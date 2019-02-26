@@ -21,19 +21,20 @@ import (
 type Shard struct {
 	sync.RWMutex
 
-	Token            string
-	SessionID        string
-	Sequence         *int64
-	Conn             *websocket.Conn
-	ShardId          int
-	ShardCount       int
-	Cache            *redis.Client
-	NC               *nats.Conn
-	SC               stan.Conn
-	wsLock           sync.Mutex
-	listening        chan interface{}
-	LastHeartbeatAck time.Time
-	Gateway          string
+	Token             string
+	SessionID         string
+	Sequence          *int64
+	Conn              *websocket.Conn
+	ShardId           int
+	ShardCount        int
+	Cache             *redis.Client
+	NC                *nats.Conn
+	SC                stan.Conn
+	wsLock            sync.Mutex
+	listening         chan interface{}
+	LastHeartbeatAck  time.Time
+	LastHeartbeatSent time.Time
+	Gateway           string
 }
 
 func (s *Shard) Open(gateway string) error {
@@ -121,9 +122,47 @@ func (s *Shard) Open(gateway string) error {
 	}
 
 	s.listening = make(chan interface{})
-	// TODO: Set up heartbeat logic
+	go s.Heartbeat(s.Conn, s.listening, h.Interval)
 	go s.onPayload(s.Conn, s.listening)
 	return nil
+}
+
+func (s *Shard) Heartbeat(Conn *websocket.Conn, listening <-chan interface{}, heartbeatInt time.Duration) {
+	if listening == nil || Conn == nil {
+		return
+	}
+
+	var err error
+	ticker := time.NewTicker(heartbeatInt * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		s.RLock()
+		last := s.LastHeartbeatAck
+		s.RUnlock()
+		sequence := atomic.LoadInt64(s.Sequence)
+		s.wsLock.Lock()
+		s.LastHeartbeatSent = time.Now().UTC()
+		err = Conn.WriteJSON(HeartBeatOp{1, sequence})
+		s.wsLock.Unlock()
+		if err != nil || time.Now().UTC().Sub(last) > (heartbeatInt*FailedHeartbeatAcks) {
+			if err != nil {
+				log.Errorf("error sending heartbeat on shard %d, %s", s.ShardId, err)
+			} else {
+				log.Errorf("haven't gotten a heartbeat ACK in %v, triggering a reconnection", time.Now().UTC().Sub(last))
+			}
+			_ = s.Close()
+			s.Reconnect()
+			return
+		}
+
+		select {
+		case <-ticker.C:
+			// continue loop and send heartbeat
+		case <-listening:
+			return
+		}
+	}
 }
 
 func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) {

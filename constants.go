@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 // Websocket OpCodes
 const (
 	OP_DISPATCH              = 0
@@ -14,3 +16,5 @@ const (
 	OP_HELLO                 = 10
 	OP_HEARTBEAT_ACK         = 11
 )
+
+const FailedHeartbeatAcks = 5 * time.Millisecond
