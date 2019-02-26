@@ -126,7 +126,7 @@ type Guild struct {
 	VerificationLevel           uint32           `json:"verification_level"`
 	DefaultMessageNotifications uint32           `json:"default_message_notifications"`
 	ExplicitContentFilter       uint32           `json:"explicit_content_filter"`
-	Roles                       []Role           `json:"roles"`
+	Roles                       []Role           `json:"roles,omitempty"`
 	Emojis                      []Emoji          `json:"emojis"`
 	Features                    []string         `json:"features"`
 	MfaLevel                    uint32           `json:"mfa_level"`
@@ -139,9 +139,9 @@ type Guild struct {
 	Unavailable                 bool             `json:"unavailable"`
 	MemberCount                 uint32           `json:"member_count"`
 	VoiceStates                 []VoiceState     `json:"voice_states"`
-	Members                     []GuildMember    `json:"members"`
-	Channels                    []Channel        `json:"channels"`
-	Presences                   []PresenceUpdate `json:"presences"`
+	Members                     []GuildMember    `json:"members,omitempty"`
+	Channels                    []Channel        `json:"channels,omitempty"`
+	Presences                   []PresenceUpdate `json:"presences,omitempty"`
 }
 
 type Role struct {
