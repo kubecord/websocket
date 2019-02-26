@@ -18,3 +18,5 @@ const (
 )
 
 const FailedHeartbeatAcks = 5 * time.Millisecond
+
+const APIBase = "https://discordapp.com/api/v6"

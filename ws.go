@@ -47,15 +47,15 @@ func (s *Shard) Open(gateway string) error {
 		return ErrWSAlreadyOpen
 	}
 	s.Gateway = gateway
-	gateway = gateway + "?v=6&encoding=json&compress=zlib-stream"
+	gateway = gateway + "?v=6&encoding=json"
 
-	log.Info("Shard %d connecting to gateway", s.ShardId)
+	log.Infof("Shard %d connecting to gateway", s.ShardId)
 	header := http.Header{}
 	header.Add("accept-encoding", "zlib")
 
 	s.Conn, _, err = websocket.DefaultDialer.Dial(gateway, header)
 	if err != nil {
-		log.Warn("error connecting to gateway on shard %d", err)
+		log.Warnf("error connecting to gateway on shard %d", err)
 		s.Conn = nil
 		return err
 	}
@@ -176,6 +176,7 @@ func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) 
 			s.RUnlock()
 
 			if sameConnection {
+				log.Warnf("error reading from gateway on shard %d: %s", s.ShardId, err)
 				err := s.Close()
 				if err != nil {
 					log.Warn("error closing connection, %s", err)
@@ -203,22 +204,26 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 	var err error
 	var e *GatewayPayload
 	buffer = bytes.NewBuffer(message)
-
+	log.Debugf("Got event on shard %d", s.ShardId)
 	if messageType == websocket.BinaryMessage {
 		decompressor, zerr := zlib.NewReader(buffer)
 		if zerr != nil {
-			log.Error("error decompressing message: %s", zerr)
+			log.Errorf("error decompressing message: %s", zerr)
+			return nil, zerr
 		}
 
 		defer func() {
 			zerr := decompressor.Close()
 			if zerr != nil {
-				log.Warn("error closing zlib: %s", zerr)
+				log.Warnf("error closing zlib: %s", zerr)
+				return
 			}
 		}()
 
 		buffer = decompressor
 	}
+
+	log.Debugf("Decompressed message on shard %d", s.ShardId)
 
 	decoder := json.NewDecoder(buffer)
 	if err = decoder.Decode(&e); err != nil {
@@ -226,7 +231,7 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 		return e, err
 	}
 
-	log.Debug("Op: %d, Seq: %d, Type: %s, Data: %s\n\n", e.Op, e.Sequence, e.Event, string(e.Data))
+	log.Debugf("Op: %d, Seq: %d, Type: %s, Data: %s\n\n", e.Op, e.Sequence, e.Event, string(e.Data))
 
 	switch e.Op {
 	case OP_HEARTBEAT:
@@ -246,7 +251,7 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 	case OP_INVALID_SESSION:
 		err = s.Identify()
 		if err != nil {
-			log.Error("error identifying with gateway: %s", err)
+			log.Errorf("error identifying with gateway: %s", err)
 			return e, err
 		}
 		return e, nil
@@ -256,14 +261,15 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 		s.Lock()
 		s.LastHeartbeatAck = time.Now().UTC()
 		s.Unlock()
-		log.Debug("got heartbeat ACK")
+		log.Debugf("got heartbeat ACK")
 		return e, nil
 	case OP_DISPATCH:
 		// Dispatch the message
 		atomic.StoreInt64(s.Sequence, e.Sequence)
+		log.Debugf("Got event %s on shard %d", e.Event, s.ShardId)
 		return e, nil
 	default:
-		log.Warn("Unknown Op: %d", e.Op)
+		log.Warnf("Unknown Op: %d", e.Op)
 		return e, nil
 	}
 }

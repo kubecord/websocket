@@ -89,6 +89,11 @@ type ResumePayload struct {
 	Data ResumeData `json:"d"`
 }
 
+type GatewayBotResponse struct {
+	URL    string `json:"url"`
+	Shards int    `json:"shards"`
+}
+
 /* Gateway objects */
 
 type User struct {
