@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -25,6 +26,7 @@ func main() {
 		shard.ShardCount = GatewayData.Shards
 		shard.ShardId = sid
 		_ = shard.Open(GatewayData.URL)
+		time.Sleep(5 * time.Second)
 	}
 
 	// Wait here until CTRL-C or other term signal is received.

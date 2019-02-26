@@ -166,7 +166,6 @@ func (s *Shard) Heartbeat(Conn *websocket.Conn, listening <-chan interface{}, he
 }
 
 func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) {
-	log.Info("Websocket message")
 	for {
 		messageType, message, err := wsConn.ReadMessage()
 
