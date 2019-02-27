@@ -37,7 +37,20 @@ type Shard struct {
 	Gateway           string
 }
 
-func (s *Shard) Open(gateway string) error {
+func NewShard(gateway string, token string, shardCount int, shardID int) (shard Shard) {
+	initSequence := int64(0)
+	shard = Shard{
+		Gateway:    gateway + "?v=6&encoding=json",
+		Sequence:   &initSequence,
+		SessionID:  "",
+		Token:      token,
+		ShardCount: shardCount,
+		ShardId:    shardID,
+	}
+	return
+}
+
+func (s *Shard) Open() error {
 	var err error
 
 	s.Lock()
@@ -46,14 +59,12 @@ func (s *Shard) Open(gateway string) error {
 	if s.Conn != nil {
 		return ErrWSAlreadyOpen
 	}
-	s.Gateway = gateway
-	gateway = gateway + "?v=6&encoding=json"
 
 	log.Infof("Shard %d connecting to gateway", s.ShardId)
 	header := http.Header{}
 	header.Add("accept-encoding", "zlib")
 
-	s.Conn, _, err = websocket.DefaultDialer.Dial(gateway, header)
+	s.Conn, _, err = websocket.DefaultDialer.Dial(s.Gateway, header)
 	if err != nil {
 		log.Warnf("error connecting to gateway on shard %d", err)
 		s.Conn = nil

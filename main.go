@@ -17,15 +17,11 @@ func main() {
 	if err != nil {
 		log.Fatal("Unable to get GatewayBot data")
 	}
-	shards := make([]Shard, GatewayData.Shards)
-	initSequence := int64(0)
-	for sid, shard := range shards {
-		shard.Sequence = &initSequence
-		shard.SessionID = ""
-		shard.Token = token
-		shard.ShardCount = GatewayData.Shards
-		shard.ShardId = sid
-		_ = shard.Open(GatewayData.URL)
+	var shards []Shard
+	for i := 0; i < GatewayData.Shards; i++ {
+		shard := NewShard(GatewayData.URL, token, GatewayData.Shards, i)
+		_ = shard.Open()
+		shards = append(shards, shard)
 		time.Sleep(5 * time.Second)
 	}
 

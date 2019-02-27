@@ -72,5 +72,24 @@ func (c *RedisCache) DeleteMember(GuildID string, MemberID string) (err error) {
 }
 
 func (c *RedisCache) PutUser(UserID string, data User) (err error) {
+	output, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	_, err = c.client.HSet("cache:user", UserID, output).Result()
+	return
+}
 
+func (c *RedisCache) DeleteUser(UserID string) (err error) {
+	_, err = c.client.HDel("cache:user", UserID).Result()
+	return
+}
+
+func (c *RedisCache) PutClientUser(data User) (err error) {
+	output, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	_, err = c.client.HSet("cache:user", "@me", output).Result()
+	return
 }
