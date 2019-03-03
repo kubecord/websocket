@@ -215,4 +215,50 @@ type Overwrite struct {
 	Deny  uint32 `json:"deny"`
 }
 
-type PresenceUpdate struct{}
+// GameType is the type of "game" (see GameType* consts) in the Game struct
+type GameType int
+
+// Valid GameType values
+const (
+	GameTypeGame GameType = iota
+	GameTypeStreaming
+	GameTypeListening
+	GameTypeWatching
+)
+
+type TimeStamps struct {
+	EndTimestamp   string `json:"end,omitempty"`
+	StartTimestamp string `json:"start,omitempty"`
+}
+
+type Assets struct {
+	LargeImageID string `json:"large_image,omitempty"`
+	SmallImageID string `json:"small_image,omitempty"`
+	LargeText    string `json:"large_text,omitempty"`
+	SmallText    string `json:"small_text,omitempty"`
+}
+
+// A Game struct holds the name of the "playing .." game for a user
+type Game struct {
+	Name          string     `json:"name"`
+	Type          GameType   `json:"type"`
+	URL           string     `json:"url,omitempty"`
+	Details       string     `json:"details,omitempty"`
+	State         string     `json:"state,omitempty"`
+	TimeStamps    TimeStamps `json:"timestamps,omitempty"`
+	Assets        Assets     `json:"assets,omitempty"`
+	ApplicationID string     `json:"application_id,omitempty"`
+	Instance      int8       `json:"instance,omitempty"`
+	// TODO: Party and Secrets (unknown structure)
+}
+
+type Status string
+
+type PresenceUpdate struct {
+	User   *User    `json:"user"`
+	Status Status   `json:"status"`
+	Game   *Game    `json:"game"`
+	Nick   string   `json:"nick"`
+	Roles  []string `json:"roles"`
+	Since  *int     `json:"since"`
+}

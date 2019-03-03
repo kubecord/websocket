@@ -5,7 +5,6 @@ import (
 	"compress/zlib"
 	"encoding/json"
 	"fmt"
-	"github.com/go-redis/redis"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/gommon/log"
 	"github.com/nats-io/go-nats"
@@ -13,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,7 +27,7 @@ type Shard struct {
 	Conn              *websocket.Conn
 	ShardId           int
 	ShardCount        int
-	Cache             *redis.Client
+	Cache             *RedisCache
 	NC                *nats.Conn
 	SC                stan.Conn
 	wsLock            sync.Mutex
@@ -39,6 +39,10 @@ type Shard struct {
 
 func NewShard(gateway string, token string, shardCount int, shardID int) (shard Shard) {
 	initSequence := int64(0)
+	cache, err := NewCache()
+	if err != nil {
+		log.Fatal("Could not connect to Redis: ", err)
+	}
 	shard = Shard{
 		Gateway:    gateway + "?v=6&encoding=json",
 		Sequence:   &initSequence,
@@ -46,6 +50,7 @@ func NewShard(gateway string, token string, shardCount int, shardID int) (shard 
 		Token:      token,
 		ShardCount: shardCount,
 		ShardId:    shardID,
+		Cache:      &cache,
 	}
 	return
 }
@@ -209,6 +214,32 @@ func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) 
 	}
 }
 
+func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
+	switch e.Event {
+	case "READY":
+		log.Infof("Shard %d has successfully connected to the gateway", s.ShardId)
+		break
+	case "RESUMED":
+		log.Infof("Shard %d has successfully resumed.", s.ShardId)
+		break
+	case "GUILD_CREATE":
+		log.Info("Adding guild to the cache")
+		var guild Guild
+		if err = json.Unmarshal(e.Data, &guild); err != nil {
+			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+		}
+		err = s.Cache.PutGuild(guild.Id, guild)
+		break
+	}
+	natsData, err := e.Data.MarshalJSON()
+	if err != nil {
+		return
+	}
+	natsSubject := strings.ToLower(e.Event)
+	err = s.SC.Publish(fmt.Sprintf("discord.event.%s", natsSubject), natsData)
+	return
+}
+
 func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, error) {
 	var buffer io.Reader
 	var err error
@@ -277,6 +308,7 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 		// Dispatch the message
 		atomic.StoreInt64(s.Sequence, e.Sequence)
 		log.Debugf("Got event %s on shard %d", e.Event, s.ShardId)
+		err = s.forwardEvent(e)
 		return e, nil
 	default:
 		log.Warnf("Unknown Op: %d", e.Op)
@@ -285,14 +317,6 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 }
 
 func (s *Shard) run() {
-	s.Cache = redis.NewClient(&redis.Options{
-		Addr: "",
-		DB:   0,
-	})
-	_, err := s.Cache.Ping().Result()
-	if err != nil {
-		log.Fatal(err)
-	}
 	nc, err := nats.Connect(nats.DefaultURL)
 	if err != nil {
 		log.Fatal(err)
@@ -341,7 +365,7 @@ func (s *Shard) Reconnect() {
 	wait := time.Duration(1)
 
 	for {
-		err = s.Open(s.Gateway)
+		err = s.Open()
 		if err == nil {
 			log.Info("reconnected shard %d to gateway", s.ShardId)
 			return
