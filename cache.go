@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-redis/redis"
+	"github.com/imdario/mergo"
 	"os"
 )
 
@@ -49,6 +50,25 @@ func (c *RedisCache) PutGuild(GuildID string, data Guild) (err error) {
 	}
 	data.Roles, data.Channels, data.Members, data.Presences = nil, nil, nil, nil
 	output, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	_, err = c.client.HSet("cache:guild", GuildID, string(output)).Result()
+	return
+}
+
+func (c *RedisCache) UpdateGuild(GuildID string, data Guild) (err error) {
+	redisData, err := c.client.HGet("cache:guild", GuildID).Result()
+	var oldGuild Guild
+	err = json.Unmarshal([]byte(redisData), &oldGuild)
+	if err != nil {
+		return
+	}
+	err = mergo.Merge(&oldGuild, data)
+	if err != nil {
+		return
+	}
+	output, err := json.Marshal(oldGuild)
 	if err != nil {
 		return
 	}

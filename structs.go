@@ -227,8 +227,8 @@ const (
 )
 
 type TimeStamps struct {
-	EndTimestamp   string `json:"end,omitempty"`
-	StartTimestamp string `json:"start,omitempty"`
+	EndTimestamp   int64 `json:"end,omitempty"`
+	StartTimestamp int64 `json:"start,omitempty"`
 }
 
 type Assets struct {

@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -230,13 +229,31 @@ func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
 		}
 		err = s.Cache.PutGuild(guild.Id, guild)
 		break
+	case "GUILD_UPDATE":
+		log.Infof("Updating guild data in cache")
+		var guild Guild
+		if err = json.Unmarshal(e.Data, &guild); err != nil {
+			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+		}
+		err = s.Cache.UpdateGuild(guild.Id, guild)
+		break
+	case "GUILD_DELETE":
+		log.Infof("Removing guild from cache")
+		var guild Guild
+		if err = json.Unmarshal(e.Data, &guild); err != nil {
+			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+		}
+		err = s.Cache.DeleteGuild(guild.Id)
+		break
 	}
-	natsData, err := e.Data.MarshalJSON()
-	if err != nil {
-		return
-	}
-	natsSubject := strings.ToLower(e.Event)
-	err = s.SC.Publish(fmt.Sprintf("discord.event.%s", natsSubject), natsData)
+	/*
+		natsData, err := e.Data.MarshalJSON()
+		if err != nil {
+			return
+		}
+		natsSubject := strings.ToLower(e.Event)
+		err = s.SC.Publish(fmt.Sprintf("discord.event.%s", natsSubject), natsData)
+	*/
 	return
 }
 
