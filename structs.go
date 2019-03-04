@@ -249,7 +249,6 @@ type Game struct {
 	Assets        Assets     `json:"assets,omitempty"`
 	ApplicationID string     `json:"application_id,omitempty"`
 	Instance      int8       `json:"instance,omitempty"`
-	// TODO: Party and Secrets (unknown structure)
 }
 
 type Status string

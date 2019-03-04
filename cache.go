@@ -90,6 +90,25 @@ func (c *RedisCache) PutChannel(GuildID string, ChannelID string, data Channel) 
 	return
 }
 
+func (c *RedisCache) UpdateChannel(GuildID string, ChannelID string, data Channel) (err error) {
+	redisData, err := c.client.HGet(fmt.Sprintf("cache:channel:%s", GuildID), ChannelID).Result()
+	var oldChannel Channel
+	err = json.Unmarshal([]byte(redisData), &oldChannel)
+	if err != nil {
+		return
+	}
+	err = mergo.Merge(&oldChannel, data)
+	if err != nil {
+		return
+	}
+	output, err := json.Marshal(oldChannel)
+	if err != nil {
+		return
+	}
+	_, err = c.client.HSet(fmt.Sprintf("cache:channel:%s", GuildID), ChannelID, string(output)).Result()
+	return
+}
+
 func (c *RedisCache) DeleteChannel(GuildID string, ChannelID string) (err error) {
 	_, err = c.client.HDel(fmt.Sprintf("cache:channel:%s", GuildID), ChannelID).Result()
 	return

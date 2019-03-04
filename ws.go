@@ -245,6 +245,30 @@ func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
 		}
 		err = s.Cache.DeleteGuild(guild.Id)
 		break
+	case "CHANNEL_CREATE":
+		log.Infof("Adding channel to the cache")
+		var channel Channel
+		if err = json.Unmarshal(e.Data, &channel); err != nil {
+			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+		}
+		err = s.Cache.PutChannel(channel.GuildId, channel.Id, channel)
+		break
+	case "CHANNEL_UPDATE":
+		log.Infof("Updating channel in cache")
+		var channel Channel
+		if err = json.Unmarshal(e.Data, &channel); err != nil {
+			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+		}
+		err = s.Cache.UpdateChannel(channel.GuildId, channel.Id, channel)
+		break
+	case "CHANNEL_DELETE":
+		log.Infof("Removing channel from cache")
+		var channel Channel
+		if err = json.Unmarshal(e.Data, &channel); err != nil {
+			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+		}
+		err = s.Cache.DeleteChannel(channel.GuildId, channel.Id)
+		return
 	}
 	/*
 		natsData, err := e.Data.MarshalJSON()
