@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/websocket"
-	"github.com/labstack/gommon/log"
 	"github.com/nats-io/go-nats"
 	"github.com/nats-io/go-nats-streaming"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,13 +65,13 @@ func (s *Shard) Open() error {
 		return ErrWSAlreadyOpen
 	}
 
-	log.Infof("Shard %d connecting to gateway", s.ShardId)
+	log.Printf("Shard %d connecting to gateway", s.ShardId)
 	header := http.Header{}
 	header.Add("accept-encoding", "zlib")
 
 	s.Conn, _, err = websocket.DefaultDialer.Dial(s.Gateway, header)
 	if err != nil {
-		log.Warnf("error connecting to gateway on shard %d", err)
+		log.Printf("error connecting to gateway on shard %d", err)
 		s.Conn = nil
 		return err
 	}
@@ -93,13 +94,13 @@ func (s *Shard) Open() error {
 	if err != nil {
 		return err
 	}
-	e, err := s.Dispatch(messagetype, message)
+	e, err := s.dispatch(messagetype, message)
 	if err != nil {
 		return err
 	}
 
 	if e.Op != OP_HELLO {
-		log.Error("expecting Op 10, got Op %d", e.Op)
+		log.Printf("expecting Op 10, got Op %d", e.Op)
 		return err
 	}
 
@@ -112,7 +113,7 @@ func (s *Shard) Open() error {
 
 	sequence := atomic.LoadInt64(s.Sequence)
 	if s.SessionID == "" && sequence == 0 {
-		err = s.Identify()
+		err = s.identify()
 		if err != nil {
 			return fmt.Errorf("error sending identify package on shard %d: %s", s.ShardId, err)
 		}
@@ -137,12 +138,12 @@ func (s *Shard) Open() error {
 	}
 
 	s.listening = make(chan interface{})
-	go s.Heartbeat(s.Conn, s.listening, h.Interval)
+	go s.heartbeat(s.Conn, s.listening, h.Interval)
 	go s.onPayload(s.Conn, s.listening)
 	return nil
 }
 
-func (s *Shard) Heartbeat(Conn *websocket.Conn, listening <-chan interface{}, heartbeatInt time.Duration) {
+func (s *Shard) heartbeat(Conn *websocket.Conn, listening <-chan interface{}, heartbeatInt time.Duration) {
 	if listening == nil || Conn == nil {
 		return
 	}
@@ -162,12 +163,12 @@ func (s *Shard) Heartbeat(Conn *websocket.Conn, listening <-chan interface{}, he
 		s.wsLock.Unlock()
 		if err != nil || time.Now().UTC().Sub(last) > (heartbeatInt*FailedHeartbeatAcks) {
 			if err != nil {
-				log.Errorf("error sending heartbeat on shard %d, %s", s.ShardId, err)
+				log.Printf("error sending heartbeat on shard %d, %s", s.ShardId, err)
 			} else {
-				log.Errorf("haven't gotten a heartbeat ACK in %v, triggering a reconnection", time.Now().UTC().Sub(last))
+				log.Printf("haven't gotten a heartbeat ACK in %v, triggering a reconnection", time.Now().UTC().Sub(last))
 			}
 			_ = s.Close()
-			s.Reconnect()
+			s.reconnect()
 			return
 		}
 
@@ -190,13 +191,13 @@ func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) 
 			s.RUnlock()
 
 			if sameConnection {
-				log.Warnf("error reading from gateway on shard %d: %s", s.ShardId, err)
+				log.Printf("error reading from gateway on shard %d: %s", s.ShardId, err)
 				err := s.Close()
 				if err != nil {
-					log.Warn("error closing connection, %s", err)
+					log.Printf("error closing connection, %s", err)
 				}
-				log.Info("calling reconnect()")
-				s.Reconnect()
+				log.Println("calling reconnect()")
+				s.reconnect()
 			}
 			return
 		}
@@ -205,9 +206,9 @@ func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) 
 		case <-listening:
 			return
 		default:
-			_, err := s.Dispatch(messageType, message)
+			_, err := s.dispatch(messageType, message)
 			if err != nil {
-				log.Error("Error dispatching message: %s", err)
+				log.Printf("Error dispatching message: %s", err)
 			}
 		}
 	}
@@ -216,88 +217,86 @@ func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) 
 func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
 	switch e.Event {
 	case "READY":
-		log.Infof("Shard %d has successfully connected to the gateway", s.ShardId)
+		log.Printf("Shard %d has successfully connected to the gateway", s.ShardId)
 		break
 	case "RESUMED":
-		log.Infof("Shard %d has successfully resumed.", s.ShardId)
+		log.Printf("Shard %d has successfully resumed.", s.ShardId)
 		break
 	case "GUILD_CREATE":
-		log.Info("Adding guild to the cache")
+		log.Println("Adding guild to the cache")
 		var guild Guild
 		if err = json.Unmarshal(e.Data, &guild); err != nil {
-			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
 		err = s.Cache.PutGuild(guild.Id, guild)
 		break
 	case "GUILD_UPDATE":
-		log.Infof("Updating guild data in cache")
+		log.Println("Updating guild data in cache")
 		var guild Guild
 		if err = json.Unmarshal(e.Data, &guild); err != nil {
-			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
 		err = s.Cache.UpdateGuild(guild.Id, guild)
 		break
 	case "GUILD_DELETE":
-		log.Infof("Removing guild from cache")
+		log.Println("Removing guild from cache")
 		var guild Guild
 		if err = json.Unmarshal(e.Data, &guild); err != nil {
-			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
 		err = s.Cache.DeleteGuild(guild.Id)
 		break
 	case "CHANNEL_CREATE":
-		log.Infof("Adding channel to the cache")
+		log.Println("Adding channel to the cache")
 		var channel Channel
 		if err = json.Unmarshal(e.Data, &channel); err != nil {
-			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
 		err = s.Cache.PutChannel(channel.GuildId, channel.Id, channel)
 		break
 	case "CHANNEL_UPDATE":
-		log.Infof("Updating channel in cache")
+		log.Println("Updating channel in cache")
 		var channel Channel
 		if err = json.Unmarshal(e.Data, &channel); err != nil {
-			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
 		err = s.Cache.UpdateChannel(channel.GuildId, channel.Id, channel)
 		break
 	case "CHANNEL_DELETE":
-		log.Infof("Removing channel from cache")
+		log.Println("Removing channel from cache")
 		var channel Channel
 		if err = json.Unmarshal(e.Data, &channel); err != nil {
-			log.Errorf("error unmarshalling %s event: %s", e.Event, err)
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
 		err = s.Cache.DeleteChannel(channel.GuildId, channel.Id)
 		return
 	}
-	/*
-		natsData, err := e.Data.MarshalJSON()
-		if err != nil {
-			return
-		}
-		natsSubject := strings.ToLower(e.Event)
-		err = s.SC.Publish(fmt.Sprintf("discord.event.%s", natsSubject), natsData)
-	*/
+	natsData, err := e.Data.MarshalJSON()
+	if err != nil {
+		return
+	}
+	natsSubject := strings.ToLower(e.Event)
+	err = s.SC.Publish(fmt.Sprintf("discord.event.%s", natsSubject), natsData)
 	return
 }
 
-func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, error) {
+func (s *Shard) dispatch(messageType int, message []byte) (*GatewayPayload, error) {
 	var buffer io.Reader
 	var err error
 	var e *GatewayPayload
 	buffer = bytes.NewBuffer(message)
-	log.Debugf("Got event on shard %d", s.ShardId)
+	log.Printf("Got event on shard %d", s.ShardId)
 	if messageType == websocket.BinaryMessage {
 		decompressor, zerr := zlib.NewReader(buffer)
 		if zerr != nil {
-			log.Errorf("error decompressing message: %s", zerr)
+			log.Printf("error decompressing message: %s", zerr)
 			return nil, zerr
 		}
 
 		defer func() {
 			zerr := decompressor.Close()
 			if zerr != nil {
-				log.Warnf("error closing zlib: %s", zerr)
+				log.Printf("error closing zlib: %s", zerr)
 				return
 			}
 		}()
@@ -305,15 +304,15 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 		buffer = decompressor
 	}
 
-	log.Debugf("Decompressed message on shard %d", s.ShardId)
+	log.Printf("Decompressed message on shard %d", s.ShardId)
 
 	decoder := json.NewDecoder(buffer)
 	if err = decoder.Decode(&e); err != nil {
-		log.Error("error decoding message: %s", err)
+		log.Printf("error decoding message: %s", err)
 		return e, err
 	}
 
-	log.Debugf("Op: %d, Seq: %d, Type: %s, Data: %s\n\n", e.Op, e.Sequence, e.Event, string(e.Data))
+	log.Printf("Op: %d, Seq: %d, Type: %s, Data: %s\n\n", e.Op, e.Sequence, e.Event, string(e.Data))
 
 	switch e.Op {
 	case OP_HEARTBEAT:
@@ -321,19 +320,19 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 		err = s.Conn.WriteJSON(HeartBeatOp{OP_HEARTBEAT, atomic.LoadInt64(s.Sequence)})
 		s.wsLock.Unlock()
 		if err != nil {
-			log.Error("error sending heartbeat")
+			log.Println("error sending heartbeat")
 			return e, err
 		}
 
 		return e, nil
 	case OP_RECONNECT:
 		_ = s.Close()
-		s.Reconnect()
+		s.reconnect()
 		return e, nil
 	case OP_INVALID_SESSION:
-		err = s.Identify()
+		err = s.identify()
 		if err != nil {
-			log.Errorf("error identifying with gateway: %s", err)
+			log.Printf("error identifying with gateway: %s", err)
 			return e, err
 		}
 		return e, nil
@@ -343,16 +342,16 @@ func (s *Shard) Dispatch(messageType int, message []byte) (*GatewayPayload, erro
 		s.Lock()
 		s.LastHeartbeatAck = time.Now().UTC()
 		s.Unlock()
-		log.Debugf("got heartbeat ACK")
+		log.Println("got heartbeat ACK")
 		return e, nil
 	case OP_DISPATCH:
 		// Dispatch the message
 		atomic.StoreInt64(s.Sequence, e.Sequence)
-		log.Debugf("Got event %s on shard %d", e.Event, s.ShardId)
+		log.Printf("Got event %s on shard %d", e.Event, s.ShardId)
 		err = s.forwardEvent(e)
 		return e, nil
 	default:
-		log.Warnf("Unknown Op: %d", e.Op)
+		log.Printf("Unknown Op: %d", e.Op)
 		return e, nil
 	}
 }
@@ -375,7 +374,7 @@ func (s *Shard) run() {
 	s.SC = sc
 }
 
-func (s *Shard) Identify() error {
+func (s *Shard) identify() error {
 	props := IdentifyProperties{
 		OS:      "Kubecord v0.0.1",
 		Browser: "",
@@ -400,7 +399,7 @@ func (s *Shard) Identify() error {
 	return err
 }
 
-func (s *Shard) Reconnect() {
+func (s *Shard) reconnect() {
 	var err error
 
 	wait := time.Duration(1)
@@ -408,7 +407,7 @@ func (s *Shard) Reconnect() {
 	for {
 		err = s.Open()
 		if err == nil {
-			log.Info("reconnected shard %d to gateway", s.ShardId)
+			log.Printf("reconnected shard %d to gateway", s.ShardId)
 			return
 		}
 
@@ -416,7 +415,7 @@ func (s *Shard) Reconnect() {
 			return
 		}
 
-		log.Error("error reconnecting to gateway: %s", err)
+		log.Printf("error reconnecting to gateway: %s", err)
 
 		<-time.After(wait * time.Second)
 		wait *= 2
@@ -439,14 +438,14 @@ func (s *Shard) Close() (err error) {
 		err := s.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 		s.wsLock.Unlock()
 		if err != nil {
-			log.Error("error closing websocket: %s", err)
+			log.Printf("error closing websocket: %s", err)
 		}
 
 		time.Sleep(1 * time.Second)
 
 		err = s.Conn.Close()
 		if err != nil {
-			log.Error("error closing websocket: %s", err)
+			log.Printf("error closing websocket: %s", err)
 		}
 
 		s.Conn = nil

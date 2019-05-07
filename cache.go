@@ -12,6 +12,20 @@ type RedisCache struct {
 	client *redis.Client
 }
 
+func difference(a, b []Emoji) []Emoji {
+	mb := map[string]bool{}
+	for _, x := range b {
+		mb[x.Id] = true
+	}
+	var ab []Emoji
+	for _, x := range a {
+		if _, ok := mb[x.Id]; !ok {
+			ab = append(ab, x)
+		}
+	}
+	return ab
+}
+
 func NewCache() (cache RedisCache, err error) {
 	client := redis.NewClient(&redis.Options{
 		Addr: os.Getenv("REDIS_ADDR"),
@@ -48,6 +62,13 @@ func (c *RedisCache) PutGuild(GuildID string, data Guild) (err error) {
 			return
 		}
 	}
+	for _, emoji := range data.Emojis {
+		err = c.PutEmoji(emoji)
+		if err != nil {
+			return
+		}
+	}
+
 	data.Roles, data.Channels, data.Members, data.Presences = nil, nil, nil, nil
 	output, err := json.Marshal(data)
 	if err != nil {
@@ -64,6 +85,21 @@ func (c *RedisCache) UpdateGuild(GuildID string, data Guild) (err error) {
 	if err != nil {
 		return
 	}
+
+	// Check if emoji's changed and record them in the cache
+
+	// Check for added first
+	added := difference(oldGuild.Emojis, data.Emojis)
+	for _, emoji := range added {
+		_ = c.PutEmoji(emoji)
+	}
+
+	// Check for removed emojis
+	removed := difference(data.Emojis, oldGuild.Emojis)
+	for _, emoji := range removed {
+		_ = c.DeleteEmoji(emoji.Id)
+	}
+
 	err = mergo.Merge(&oldGuild, data)
 	if err != nil {
 		return
@@ -77,6 +113,15 @@ func (c *RedisCache) UpdateGuild(GuildID string, data Guild) (err error) {
 }
 
 func (c *RedisCache) DeleteGuild(GuildID string) (err error) {
+	result, err := c.client.HGet("cache:guild", GuildID).Result()
+	var oldGuild Guild
+	err = json.Unmarshal([]byte(result), &oldGuild)
+	if err != nil {
+		return
+	}
+	for _, emoji := range oldGuild.Emojis {
+		_ = c.DeleteEmoji(emoji.Id)
+	}
 	_, err = c.client.HDel("cache:guild", GuildID).Result()
 	return
 }
@@ -162,5 +207,19 @@ func (c *RedisCache) PutClientUser(data User) (err error) {
 		return
 	}
 	_, err = c.client.HSet("cache:user", "@me", output).Result()
+	return
+}
+
+func (c *RedisCache) PutEmoji(data Emoji) (err error) {
+	output, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	_, err = c.client.HSet("cache:emoji", data.Id, output).Result()
+	return
+}
+
+func (c *RedisCache) DeleteEmoji(EmojiId string) (err error) {
+	_, err = c.client.HDel("cache:emoji", EmojiId).Result()
 	return
 }
