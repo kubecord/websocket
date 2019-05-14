@@ -78,13 +78,15 @@ func (c *RedisCache) PutGuild(GuildID string, data Guild) (err error) {
 	return
 }
 
-func (c *RedisCache) UpdateGuild(GuildID string, data Guild) (err error) {
+func (c *RedisCache) UpdateGuild(GuildID string, data Guild) (resp Guild, err error) {
 	redisData, err := c.client.HGet("cache:guild", GuildID).Result()
 	var oldGuild Guild
 	err = json.Unmarshal([]byte(redisData), &oldGuild)
 	if err != nil {
 		return
 	}
+
+	resp = oldGuild
 
 	// Check if emoji's changed and record them in the cache
 
@@ -135,13 +137,16 @@ func (c *RedisCache) PutChannel(GuildID string, ChannelID string, data Channel) 
 	return
 }
 
-func (c *RedisCache) UpdateChannel(GuildID string, ChannelID string, data Channel) (err error) {
+func (c *RedisCache) UpdateChannel(GuildID string, ChannelID string, data Channel) (resp Channel, err error) {
 	redisData, err := c.client.HGet(fmt.Sprintf("cache:channel:%s", GuildID), ChannelID).Result()
 	var oldChannel Channel
 	err = json.Unmarshal([]byte(redisData), &oldChannel)
 	if err != nil {
 		return
 	}
+
+	resp = oldChannel
+
 	err = mergo.Merge(&oldChannel, data)
 	if err != nil {
 		return
