@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/go-nats"
-	"github.com/nats-io/go-nats-streaming"
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,7 +27,6 @@ type Shard struct {
 	ShardCount        int
 	Cache             *RedisCache
 	NC                *nats.Conn
-	SC                stan.Conn
 	wsLock            sync.Mutex
 	listening         chan interface{}
 	LastHeartbeatAck  time.Time
@@ -43,6 +40,7 @@ func NewShard(gateway string, token string, shardCount int, shardID int) (shard 
 	if err != nil {
 		log.Fatal("Could not connect to Redis: ", err)
 	}
+
 	shard = Shard{
 		Gateway:    gateway + "?v=6&encoding=json",
 		Sequence:   &initSequence,
@@ -52,6 +50,11 @@ func NewShard(gateway string, token string, shardCount int, shardID int) (shard 
 		ShardId:    shardID,
 		Cache:      &cache,
 	}
+	nc, err := nats.Connect(nats.DefaultURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	shard.NC = nc
 	return
 }
 
@@ -215,12 +218,22 @@ func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) 
 }
 
 func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
+	natsSubject := strings.ToLower(e.Event)
+	var natsData []byte
 	switch e.Event {
 	case "READY":
 		log.Printf("Shard %d has successfully connected to the gateway", s.ShardId)
+		natsData, err = e.Data.MarshalJSON()
+		if err != nil {
+			return
+		}
 		break
 	case "RESUMED":
 		log.Printf("Shard %d has successfully resumed.", s.ShardId)
+		natsData, err = e.Data.MarshalJSON()
+		if err != nil {
+			return
+		}
 		break
 	case "GUILD_CREATE":
 		log.Println("Adding guild to the cache")
@@ -229,6 +242,10 @@ func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
 			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
 		err = s.Cache.PutGuild(guild.Id, guild)
+		natsData, err = e.Data.MarshalJSON()
+		if err != nil {
+			return
+		}
 		break
 	case "GUILD_UPDATE":
 		log.Println("Updating guild data in cache")
@@ -236,7 +253,14 @@ func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
 		if err = json.Unmarshal(e.Data, &guild); err != nil {
 			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
-		err = s.Cache.UpdateGuild(guild.Id, guild)
+		guild, err = s.Cache.UpdateGuild(guild.Id, guild)
+		if err != nil {
+			return
+		}
+		natsData, err = json.Marshal(guild)
+		if err != nil {
+			return
+		}
 		break
 	case "GUILD_DELETE":
 		log.Println("Removing guild from cache")
@@ -244,39 +268,215 @@ func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
 		if err = json.Unmarshal(e.Data, &guild); err != nil {
 			log.Printf("error unmarshalling %s event: %s", e.Event, err)
 		}
-		err = s.Cache.DeleteGuild(guild.Id)
+		guild, err = s.Cache.DeleteGuild(guild.Id)
+		if err != nil {
+			return
+		}
+		natsData, err = json.Marshal(guild)
+		if err != nil {
+			return
+		}
 		break
 	case "CHANNEL_CREATE":
 		log.Println("Adding channel to the cache")
 		var channel Channel
 		if err = json.Unmarshal(e.Data, &channel); err != nil {
 			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
 		}
 		err = s.Cache.PutChannel(channel.GuildId, channel.Id, channel)
+		natsData, err = json.Marshal(e.Data)
+		if err != nil {
+			return
+		}
 		break
 	case "CHANNEL_UPDATE":
 		log.Println("Updating channel in cache")
 		var channel Channel
 		if err = json.Unmarshal(e.Data, &channel); err != nil {
 			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
 		}
-		err = s.Cache.UpdateChannel(channel.GuildId, channel.Id, channel)
+		channel, err = s.Cache.UpdateChannel(channel.GuildId, channel.Id, channel)
+		if err != nil {
+			return
+		}
+		natsData, err = json.Marshal(channel)
+		if err != nil {
+			return
+		}
 		break
 	case "CHANNEL_DELETE":
 		log.Println("Removing channel from cache")
 		var channel Channel
 		if err = json.Unmarshal(e.Data, &channel); err != nil {
 			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
 		}
-		err = s.Cache.DeleteChannel(channel.GuildId, channel.Id)
-		return
+		channel, err = s.Cache.DeleteChannel(channel.GuildId, channel.Id)
+		if err != nil {
+			return
+		}
+		natsData, err = json.Marshal(channel)
+		if err != nil {
+			return
+		}
+		break
+	case "GUILD_MEMBER_ADD":
+		log.Println("Adding guild member to the cache")
+		var member GuildMember
+		if err = json.Unmarshal(e.Data, &member); err != nil {
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
+		}
+		err = s.Cache.PutMember(member.GuildID, member.User.Id, member)
+		if err != nil {
+			return
+		}
+		natsData, err = json.Marshal(e.Event)
+		if err != nil {
+			return
+		}
+		break
+	case "GUILD_MEMBER_UPDATE":
+		log.Println("Updating member in cache")
+		var member GuildMember
+		if err = json.Unmarshal(e.Data, &member); err != nil {
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
+		}
+		member, err = s.Cache.UpdateMember(member.GuildID, member.User.Id, member)
+		if err != nil {
+			return
+		}
+		natsData, err = json.Marshal(member)
+		if err != nil {
+			return
+		}
+		break
+	case "GUILD_MEMBER_REMOVE":
+		log.Println("Removing member from cache")
+		var member GuildMember
+		if err = json.Unmarshal(e.Data, &member); err != nil {
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
+		}
+		member, err = s.Cache.DeleteMember(member.GuildID, member.User.Id)
+		if err != nil {
+			return
+		}
+		natsData, err = json.Marshal(member)
+		if err != nil {
+			return
+		}
+		break
+	case "GUILD_ROLE_CREATE":
+		log.Println("Adding role to the cache")
+		var role GuildRole
+		if err = json.Unmarshal(e.Data, &role); err != nil {
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
+		}
+		err = s.Cache.PutRole(role.GuildID, role.Role.Id, *role.Role)
+		if err != nil {
+			return
+		}
+		natsData, err = json.Marshal(role)
+		if err != nil {
+			return
+		}
+		break
+	case "GUILD_ROLE_UPDATE":
+		log.Println("Updating role in cache")
+		var role GuildRole
+		if err = json.Unmarshal(e.Data, &role); err != nil {
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
+		}
+		var tempRole Role
+		tempRole, err = s.Cache.UpdateRole(role.GuildID, role.Role.Id, *role.Role)
+		if err != nil {
+			log.Printf("error saving role to cache: %s", err)
+			return
+		}
+		role.Role = &tempRole
+		natsData, err = json.Marshal(role)
+		if err != nil {
+			return
+		}
+		break
+	case "GUILD_ROLE_DELETE":
+		log.Println("Removing role from cache")
+		var role GuildRoleDelete
+		if err = json.Unmarshal(e.Data, &role); err != nil {
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
+		}
+		var tempRole Role
+		tempRole, err = s.Cache.DeleteRole(role.GuildID, role.RoleID)
+		if err != nil {
+			return
+		}
+		var outRole GuildRole
+		outRole.GuildID = role.GuildID
+		outRole.Role = &tempRole
+		natsData, err = json.Marshal(outRole)
+		if err != nil {
+			return
+		}
+		break
+	case "GUILD_EMOJIS_UPDATE":
+		log.Println("Updating guild roles in cache")
+		var emojis GuildEmojisUpdate
+		if err = json.Unmarshal(e.Data, &emojis); err != nil {
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
+		}
+		var oldGuild Guild
+		oldGuild, err = s.Cache.GetGuild(emojis.GuildID)
+		if err != nil {
+			return
+		}
+		added := difference(emojis.Emojis, oldGuild.Emojis)
+		log.Printf("Adding %d emojis", len(added))
+		for _, emoji := range added {
+			_ = s.Cache.PutEmoji(emoji)
+		}
+		removed := difference(oldGuild.Emojis, emojis.Emojis)
+		log.Printf("Removing %d emojis", len(removed))
+		for _, emoji := range removed {
+			_, _ = s.Cache.DeleteEmoji(emoji.Id)
+		}
+
+		// Check for emoji renames because dumb
+		for i := 0; i < len(emojis.Emojis); i++ {
+			for j := 0; j < len(oldGuild.Emojis); j++ {
+				if (oldGuild.Emojis[j].Id == emojis.Emojis[i].Id) && (oldGuild.Emojis[j].Name != emojis.Emojis[i].Name) {
+					err = s.Cache.PutEmoji(emojis.Emojis[i])
+					if err != nil {
+						return
+					}
+				}
+			}
+		}
+
+		oldGuild.Emojis = emojis.Emojis
+
+		err = s.Cache.PutGuild(oldGuild.Id, oldGuild)
+		if err != nil {
+			return
+		}
+	default:
+		natsData, err = e.Data.MarshalJSON()
+		if err != nil {
+			return
+		}
+
 	}
-	natsData, err := e.Data.MarshalJSON()
+	err = s.NC.Publish(fmt.Sprintf("discord.event.%s", natsSubject), natsData)
 	if err != nil {
-		return
+		fmt.Printf("failed to publish to NATS: %s", err)
 	}
-	natsSubject := strings.ToLower(e.Event)
-	err = s.SC.Publish(fmt.Sprintf("discord.event.%s", natsSubject), natsData)
 	return
 }
 
@@ -354,24 +554,6 @@ func (s *Shard) dispatch(messageType int, message []byte) (*GatewayPayload, erro
 		log.Printf("Unknown Op: %d", e.Op)
 		return e, nil
 	}
-}
-
-func (s *Shard) run() {
-	nc, err := nats.Connect(nats.DefaultURL)
-	if err != nil {
-		log.Fatal(err)
-	}
-	s.NC = nc
-
-	clientId := fmt.Sprintf("%s%d", "shard-", s.ShardId)
-
-	clusterName := os.Getenv("STAN_CLUSTER")
-
-	sc, err := stan.Connect(clusterName, clientId, stan.NatsConn(s.NC))
-	if err != nil {
-		log.Fatal(err)
-	}
-	s.SC = sc
 }
 
 func (s *Shard) identify() error {

@@ -97,17 +97,17 @@ type GatewayBotResponse struct {
 /* Gateway objects */
 
 type User struct {
-	Id            string `json:"id"`
-	Username      string `json:"username"`
-	Discriminator string `json:"discriminator"`
-	Avatar        string `json:"avatar"`
-	Bot           bool   `json:"bot"`
-	MfaEnabled    bool   `json:"mfa_enabled"`
-	Locale        string `json:"locale"`
-	Verified      bool   `json:"verified"`
-	Email         string `json:"email"`
-	Flags         uint32 `json:"flags"`
-	Premium       uint32 `json:"premium_type"`
+	Id            string `json:"id,omitempty"`
+	Username      string `json:"username,omitempty"`
+	Discriminator string `json:"discriminator,omitempty"`
+	Avatar        string `json:"avatar,omitempty"`
+	Bot           bool   `json:"bot,omitempty"`
+	MfaEnabled    bool   `json:"mfa_enabled,omitempty"`
+	Locale        string `json:"locale,omitempty"`
+	Verified      bool   `json:"verified,omitempty"`
+	Email         string `json:"email,omitempty"`
+	Flags         uint32 `json:"flags,omitempty"`
+	Premium       uint32 `json:"premium_type,omitempty"`
 }
 
 type Guild struct {
@@ -158,8 +158,8 @@ type Role struct {
 type Emoji struct {
 	Id            string   `json:"id"`
 	Name          string   `json:"name"`
-	Roles         []string `json:"roles"`
-	User          User     `json:"user"`
+	Roles         []string `json:"roles,omitempty"`
+	User          User     `json:"user,omitempty"`
 	RequireColons bool     `json:"require_colons"`
 	Managed       bool     `json:"managed"`
 	Animated      bool     `json:"animated"`
@@ -179,12 +179,13 @@ type VoiceState struct {
 }
 
 type GuildMember struct {
-	User     User     `json:"user"`
-	Nick     string   `json:"nick"`
-	Roles    []string `json:"roles"`
+	GuildID  string   `json:"guild_id"`
 	JoinedAt string   `json:"joined_at"`
-	Deafened bool     `json:"deaf"`
-	Muted    bool     `json:"mute"`
+	Nick     string   `json:"nick"`
+	Deaf     bool     `json:"deaf"`
+	Mute     bool     `json:"mute"`
+	User     *User    `json:"user"`
+	Roles    []string `json:"roles"`
 }
 
 type Channel struct {
@@ -260,4 +261,19 @@ type PresenceUpdate struct {
 	Nick   string   `json:"nick"`
 	Roles  []string `json:"roles"`
 	Since  *int     `json:"since"`
+}
+
+type GuildRole struct {
+	Role    *Role  `json:"role"`
+	GuildID string `json:"guild_id"`
+}
+
+type GuildRoleDelete struct {
+	RoleID  string `json:"role_id"`
+	GuildID string `json:"guild_id"`
+}
+
+type GuildEmojisUpdate struct {
+	GuildID string  `json:"guild_id"`
+	Emojis  []Emoji `json:"emojis"`
 }

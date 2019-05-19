@@ -43,6 +43,12 @@ func (c *RedisCache) Clear() (err error) {
 	return
 }
 
+func (c *RedisCache) GetGuild(GuildID string) (guild Guild, err error) {
+	redisData, err := c.client.HGet("cache:guild", GuildID).Result()
+	err = json.Unmarshal([]byte(redisData), &guild)
+	return
+}
+
 func (c *RedisCache) PutGuild(GuildID string, data Guild) (err error) {
 	for _, role := range data.Roles {
 		err = c.PutRole(GuildID, role.Id, role)
@@ -87,26 +93,11 @@ func (c *RedisCache) UpdateGuild(GuildID string, data Guild) (resp Guild, err er
 	}
 
 	resp = oldGuild
+	// Because discord doesn't send member count on updates
+	data.MemberCount = oldGuild.MemberCount
 
-	// Check if emoji's changed and record them in the cache
-
-	// Check for added first
-	added := difference(oldGuild.Emojis, data.Emojis)
-	for _, emoji := range added {
-		_ = c.PutEmoji(emoji)
-	}
-
-	// Check for removed emojis
-	removed := difference(data.Emojis, oldGuild.Emojis)
-	for _, emoji := range removed {
-		_ = c.DeleteEmoji(emoji.Id)
-	}
-
-	err = mergo.Merge(&oldGuild, data)
-	if err != nil {
-		return
-	}
-	output, err := json.Marshal(oldGuild)
+	data.Roles, data.Channels, data.Members, data.Presences = nil, nil, nil, nil
+	output, err := json.Marshal(data)
 	if err != nil {
 		return
 	}
@@ -114,15 +105,16 @@ func (c *RedisCache) UpdateGuild(GuildID string, data Guild) (resp Guild, err er
 	return
 }
 
-func (c *RedisCache) DeleteGuild(GuildID string) (err error) {
+func (c *RedisCache) DeleteGuild(GuildID string) (resp Guild, err error) {
 	result, err := c.client.HGet("cache:guild", GuildID).Result()
 	var oldGuild Guild
 	err = json.Unmarshal([]byte(result), &oldGuild)
 	if err != nil {
 		return
 	}
+	resp = oldGuild
 	for _, emoji := range oldGuild.Emojis {
-		_ = c.DeleteEmoji(emoji.Id)
+		_, _ = c.DeleteEmoji(emoji.Id)
 	}
 	_, err = c.client.HDel("cache:guild", GuildID).Result()
 	return
@@ -147,11 +139,7 @@ func (c *RedisCache) UpdateChannel(GuildID string, ChannelID string, data Channe
 
 	resp = oldChannel
 
-	err = mergo.Merge(&oldChannel, data)
-	if err != nil {
-		return
-	}
-	output, err := json.Marshal(oldChannel)
+	output, err := json.Marshal(data)
 	if err != nil {
 		return
 	}
@@ -159,7 +147,15 @@ func (c *RedisCache) UpdateChannel(GuildID string, ChannelID string, data Channe
 	return
 }
 
-func (c *RedisCache) DeleteChannel(GuildID string, ChannelID string) (err error) {
+func (c *RedisCache) DeleteChannel(GuildID string, ChannelID string) (resp Channel, err error) {
+	redisData, err := c.client.HGet(fmt.Sprintf("cache:channel:%s", GuildID), ChannelID).Result()
+	var oldChannel Channel
+	err = json.Unmarshal([]byte(redisData), &oldChannel)
+	if err != nil {
+		return
+	}
+
+	resp = oldChannel
 	_, err = c.client.HDel(fmt.Sprintf("cache:channel:%s", GuildID), ChannelID).Result()
 	return
 }
@@ -173,7 +169,34 @@ func (c *RedisCache) PutMember(GuildID string, MemberID string, data GuildMember
 	return
 }
 
-func (c *RedisCache) DeleteMember(GuildID string, MemberID string) (err error) {
+func (c *RedisCache) UpdateMember(GuildID, MemberID string, data GuildMember) (resp GuildMember, err error) {
+	redisData, err := c.client.HGet(fmt.Sprintf("cache:member:%s", GuildID), MemberID).Result()
+	var oldMember GuildMember
+	err = json.Unmarshal([]byte(redisData), &oldMember)
+	if err != nil {
+		return
+	}
+
+	resp = oldMember
+	data.JoinedAt = oldMember.JoinedAt
+	output, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+
+	_, err = c.client.HSet(fmt.Sprintf("cache:member:%s", GuildID), MemberID, string(output)).Result()
+	return
+}
+
+func (c *RedisCache) DeleteMember(GuildID string, MemberID string) (resp GuildMember, err error) {
+	redisData, err := c.client.HGet(fmt.Sprintf("cache:member:%s", GuildID), MemberID).Result()
+	var oldMember GuildMember
+	err = json.Unmarshal([]byte(redisData), &oldMember)
+	if err != nil {
+		return
+	}
+
+	resp = oldMember
 	_, err = c.client.HDel(fmt.Sprintf("cache:member:%s", GuildID), MemberID).Result()
 	return
 }
@@ -187,7 +210,35 @@ func (c *RedisCache) PutRole(GuildID string, RoleID string, data Role) (err erro
 	return
 }
 
-func (c *RedisCache) DeleteRole(GuildID string, RoleID string) (err error) {
+func (c *RedisCache) UpdateRole(GuildID string, RoleID string, data Role) (resp Role, err error) {
+	redisData, err := c.client.HGet(fmt.Sprintf("cache:role:%s", GuildID), RoleID).Result()
+	var oldRole Role
+	err = json.Unmarshal([]byte(redisData), &oldRole)
+	if err != nil {
+		return
+	}
+
+	resp = oldRole
+
+	output, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+
+	_, err = c.client.HSet(fmt.Sprintf("cache:role:%s", GuildID), RoleID, string(output)).Result()
+	return
+}
+
+func (c *RedisCache) DeleteRole(GuildID string, RoleID string) (resp Role, err error) {
+	redisData, err := c.client.HGet(fmt.Sprintf("cache:role:%s", GuildID), RoleID).Result()
+	var oldRole Role
+	err = json.Unmarshal([]byte(redisData), &oldRole)
+	if err != nil {
+		return
+	}
+
+	resp = oldRole
+
 	_, err = c.client.HDel(fmt.Sprintf("cache:role:%s", GuildID), RoleID).Result()
 	return
 }
@@ -201,7 +252,39 @@ func (c *RedisCache) PutUser(UserID string, data User) (err error) {
 	return
 }
 
-func (c *RedisCache) DeleteUser(UserID string) (err error) {
+func (c *RedisCache) UpdateUser(UserID string, data User) (resp User, err error) {
+	redisData, err := c.client.HGet("cache:user", UserID).Result()
+	var oldUser User
+	err = json.Unmarshal([]byte(redisData), &oldUser)
+	if err != nil {
+		return
+	}
+
+	resp = oldUser
+
+	err = mergo.Merge(&oldUser, data)
+	if err != nil {
+		return
+	}
+	output, err := json.Marshal(oldUser)
+	if err != nil {
+		return
+	}
+
+	_, err = c.client.HSet("cache:user", UserID, string(output)).Result()
+	return
+}
+
+func (c *RedisCache) DeleteUser(UserID string) (resp User, err error) {
+	redisData, err := c.client.HGet("cache:user", UserID).Result()
+	var oldUser User
+	err = json.Unmarshal([]byte(redisData), &oldUser)
+	if err != nil {
+		return
+	}
+
+	resp = oldUser
+
 	_, err = c.client.HDel("cache:user", UserID).Result()
 	return
 }
@@ -224,7 +307,35 @@ func (c *RedisCache) PutEmoji(data Emoji) (err error) {
 	return
 }
 
-func (c *RedisCache) DeleteEmoji(EmojiId string) (err error) {
-	_, err = c.client.HDel("cache:emoji", EmojiId).Result()
+func (c *RedisCache) UpdateEmoji(EmojiID string, data Emoji) (resp Emoji, err error) {
+	redisData, err := c.client.HGet("cache:emoji", EmojiID).Result()
+	var oldEmoji Emoji
+	err = json.Unmarshal([]byte(redisData), &oldEmoji)
+	if err != nil {
+		return
+	}
+
+	resp = oldEmoji
+
+	output, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+
+	_, err = c.client.HSet("cache:emoji", EmojiID, string(output)).Result()
+	return
+}
+
+func (c *RedisCache) DeleteEmoji(EmojiID string) (resp Emoji, err error) {
+	redisData, err := c.client.HGet("cache:emoji", EmojiID).Result()
+	var oldEmoji Emoji
+	err = json.Unmarshal([]byte(redisData), &oldEmoji)
+	if err != nil {
+		return
+	}
+
+	resp = oldEmoji
+
+	_, err = c.client.HDel("cache:emoji", EmojiID).Result()
 	return
 }
