@@ -277,3 +277,19 @@ type GuildEmojisUpdate struct {
 	GuildID string  `json:"guild_id"`
 	Emojis  []Emoji `json:"emojis"`
 }
+
+type GuildMembersChunk struct {
+	GuildID string        `json:"guild_id"`
+	Members []GuildMember `json:"members"`
+}
+
+type requestGuildMembersData struct {
+	GuildID string `json:"guild_id"`
+	Query   string `json:"query"`
+	Limit   int    `json:"limit"`
+}
+
+type requestGuildMembersOp struct {
+	Op   int                     `json:"op"`
+	Data requestGuildMembersData `json:"d"`
+}

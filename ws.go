@@ -246,6 +246,7 @@ func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
 		if err != nil {
 			return
 		}
+		_ = s.RequestGuildMembers(guild.Id, "", 1000)
 		break
 	case "GUILD_UPDATE":
 		log.Println("Updating guild data in cache")
@@ -425,6 +426,17 @@ func (s *Shard) forwardEvent(e *GatewayPayload) (err error) {
 			return
 		}
 		break
+	case "GUILD_MEMBERS_CHUNK":
+		var guildMembersChunk GuildMembersChunk
+		if err = json.Unmarshal(e.Data, &guildMembersChunk); err != nil {
+			log.Printf("error unmarshalling %s event: %s", e.Event, err)
+			return
+		}
+		log.Printf("Adding %d members to the cache from %s", len(guildMembersChunk.Members), guildMembersChunk.GuildID)
+		for _, member := range guildMembersChunk.Members {
+			_ = s.Cache.PutMember(guildMembersChunk.GuildID, member.User.Id, member)
+		}
+		return
 	case "GUILD_EMOJIS_UPDATE":
 		log.Println("Updating guild roles in cache")
 		var emojis GuildEmojisUpdate
@@ -634,6 +646,25 @@ func (s *Shard) Close() (err error) {
 	}
 
 	s.Unlock()
+
+	return
+}
+
+func (s *Shard) RequestGuildMembers(guildID, query string, limit int) (err error) {
+	s.RLock()
+	defer s.RUnlock()
+	if s.Conn == nil {
+		return ErrWSNotFound
+	}
+
+	data := requestGuildMembersData{
+		GuildID: guildID,
+		Query:   query,
+		Limit:   limit,
+	}
+	s.wsLock.Lock()
+	err = s.Conn.WriteJSON(requestGuildMembersOp{8, data})
+	s.wsLock.Unlock()
 
 	return
 }
