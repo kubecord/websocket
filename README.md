@@ -3,6 +3,11 @@ This is the websocket component of Kubecord.  It is responsible for capturing ev
 forwarding them to NATS queues, and keeping the Redis cache consistent.  Borrowed heavily from [discordgo](https://github.com/bwmarrin/discordgo)
 by [bwmarrin](https://github.com/bwmarrin).
 
+[![](https://images.microbadger.com/badges/image/kubecord/websocket.svg)](https://microbadger.com/images/kubecord/websocket "Get your own image badge on microbadger.com")
+![GitHub](https://img.shields.io/github/license/kubecord/websocket.svg)
+![GitHub tag (latest SemVer)](https://img.shields.io/github/tag/kubecord/websocket.svg)
+
+
 ## Building
 
 ### Binary
