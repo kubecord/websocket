@@ -7,7 +7,7 @@ FROM golang:alpine as builder
 WORKDIR /opt/build
 RUN apk --no-cache add git
 COPY . .
-RUN CGO_ENABLED=0 go build -installsuffix 'static' -o /app .
+RUN CGO_ENABLED=0 go build -installsuffix 'static' -o /app
 
 # Final product container
 FROM scratch as final
