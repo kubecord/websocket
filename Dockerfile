@@ -7,10 +7,10 @@ FROM golang:alpine as builder
 WORKDIR /opt/build
 RUN apk --no-cache add git
 COPY . .
-RUN CGO_ENABLED=0 go build -installsuffix 'static' -o /app
+RUN CGO_ENABLED=0 go build -installsuffix 'static' -o /kubecord-ws
 
 # Final product container
 FROM scratch as final
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=builder /app /app
+COPY --from=builder /kubecord-ws /kubecord-ws
 ENTRYPOINT ["/app"]
