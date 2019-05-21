@@ -36,7 +36,7 @@ docker build -t kubecord-ws .
 ## Binaries
 Binaries will be provided once this project is at a point where we are confident that it meets
 most of our desired functionality.  We will distribute them as releases on this repo,
-and as Docker containers available on quay.io.
+and as Docker containers available on [Docker Hub](https://hub.docker.com/r/kubecord/websocket).
 
 ## Running
 
