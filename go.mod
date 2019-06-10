@@ -1,4 +1,4 @@
-module git.auttaja.io/Kubecord/Websocket
+module github.com/kubecord/websocket
 
 go 1.12
 

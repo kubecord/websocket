@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
+	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -13,6 +13,10 @@ func main() {
 	token := os.Getenv("TOKEN")
 	client := Shard{Token: token}
 	GatewayData, err := client.GatewayBot()
+
+	m := new(MetricsEngine)
+	m.Init()
+
 	if err != nil {
 		log.Fatal("Unable to get GatewayBot data")
 	}
@@ -22,7 +26,7 @@ func main() {
 	log.Printf("Launching %d shards...", GatewayData.Shards)
 	var shards []Shard
 	for i := 0; i < GatewayData.Shards; i++ {
-		shard := NewShard(GatewayData.URL, token, GatewayData.Shards, i)
+		shard := NewShard(GatewayData.URL, token, GatewayData.Shards, i, m)
 		err = shard.Open()
 		if err != nil {
 			log.Fatal("Unable to connect to Discord: ", err)
@@ -33,9 +37,8 @@ func main() {
 
 	// Wait here until CTRL-C or other term signal is received.
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
-	<-sc
+	http.Handle("/metrics", promhttp.Handler())
+	log.Fatal(http.ListenAndServe(":8080", nil))
 
 	// Cleanly close down the Discord session.
 	_ = client.Close()

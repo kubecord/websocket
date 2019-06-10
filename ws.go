@@ -32,9 +32,10 @@ type Shard struct {
 	LastHeartbeatAck  time.Time
 	LastHeartbeatSent time.Time
 	Gateway           string
+	Metrics           *MetricsEngine
 }
 
-func NewShard(gateway string, token string, shardCount int, shardID int) (shard Shard) {
+func NewShard(gateway string, token string, shardCount int, shardID int, metrics *MetricsEngine) (shard Shard) {
 	initSequence := int64(0)
 	cache, err := NewCache()
 	if err != nil {
@@ -49,6 +50,7 @@ func NewShard(gateway string, token string, shardCount int, shardID int) (shard 
 		ShardCount: shardCount,
 		ShardId:    shardID,
 		Cache:      &cache,
+		Metrics:    metrics,
 	}
 	nc, err := nats.Connect(nats.DefaultURL)
 	if err != nil {
@@ -209,10 +211,14 @@ func (s *Shard) onPayload(wsConn *websocket.Conn, listening <-chan interface{}) 
 		case <-listening:
 			return
 		default:
+			start := time.Now()
 			_, err := s.dispatch(messageType, message)
 			if err != nil {
 				log.Printf("Error dispatching message: %s", err)
 			}
+			elapsed := time.Since(start)
+			s.Metrics.processingTime.Observe(elapsed.Seconds())
+			s.Metrics.events.Inc()
 		}
 	}
 }
@@ -602,6 +608,7 @@ func (s *Shard) reconnect() {
 		err = s.Open()
 		if err == nil {
 			log.Printf("reconnected shard %d to gateway", s.ShardId)
+			s.Metrics.reconnects.Inc()
 			return
 		}
 
